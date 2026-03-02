@@ -1,0 +1,15 @@
+{
+  "name": "agentic-observer",
+  "version": "1.0.0",
+  "description": "A2UI Dynamic Agent Observer",
+  "main": "frontend/app.js",
+  "scripts": {
+    "start": "live-server frontend"
+  },
+  "dependencies": {
+    "a2ui": "^latest" 
+  },
+  "devDependencies": {
+    "live-server": "^1.2.1"
+  }
+}
