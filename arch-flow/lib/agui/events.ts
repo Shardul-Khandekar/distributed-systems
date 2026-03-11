@@ -45,3 +45,67 @@ export class AGUIStreamWriter {
   emitRunError(runId: string, message: string): void {
     this.emit({ type: "RUN_ERROR", runId, message, timestamp: Date.now() });
   }
+
+  // Step Events
+  // StepId is generated here which is used by caller
+  emitStepStarted(runId: string, stepName: string): string {
+    const stepId = uuid();
+    this.emit({ type: "STEP_STARTED", runId, stepId, stepName, timestamp: Date.now() });
+    return stepId;
+  }
+
+  emitStepFinished(runId: string, stepId: string): void {
+    this.emit({ type: "STEP_FINISHED", runId, stepId, timestamp: Date.now() });
+  }
+
+  // Text Streaming Events
+  // Returns messageId the agent calls emitTextStart once, then emitTextChunk for every
+  // token OpenAI streams back, then emitTextEnd when done.
+
+  emitTextStart(runId: string, agentName: string): string {
+    const messageId = uuid();
+    this.emit({ type: "TEXT_MESSAGE_START", runId, messageId, agentName, timestamp: Date.now() });
+    return messageId;
+  }
+
+  emitTextChunk(runId: string, messageId: string, delta: string): void {
+    this.emit({ type: "TEXT_MESSAGE_CHUNK", runId, messageId, delta, timestamp: Date.now() });
+  }
+
+  emitTextEnd(runId: string, messageId: string): void {
+    this.emit({ type: "TEXT_MESSAGE_END", runId, messageId, timestamp: Date.now() });
+  }
+
+  // State Events
+  emitStateSnapshot(runId: string, snapshot: DesignState): void {
+    this.emit({ type: "STATE_SNAPSHOT", runId, snapshot, timestamp: Date.now() });
+  }
+
+  emitStateDelta(runId: string, delta: JsonPatchOp[]): void {
+    this.emit({ type: "STATE_DELTA", runId, delta, timestamp: Date.now() });
+  }
+
+  // Close the stream when done otherwise the browser keeps the connection open waiting for more events indefinitely.
+  close(): void {
+    this.controller.close();
+  }
+}
+
+export function createAGUIStream(): {
+  stream: ReadableStream<Uint8Array>;
+  writer: AGUIStreamWriter;
+} {
+  let writer!: AGUIStreamWriter;
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      writer = new AGUIStreamWriter(controller);
+    },
+  });
+
+  return { stream, writer };
+}
+
+// ID helpers
+export const newRunId    = () => `run_${uuid()}`;
+export const newThreadId = () => `thread_${uuid()}`;
