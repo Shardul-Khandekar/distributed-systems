@@ -79,3 +79,40 @@ export interface TextMessageEndEvent extends BaseEvent {
   type: "TEXT_MESSAGE_END";
   messageId: string;
 }
+
+// State Events
+
+// STATE SNAPSHOT -> Sent at the start of a run to initialize UIs state store, contains the entire state object. Also sent after a major reset
+export interface DesignState {
+  phase: "idle" | "designing" | "done";
+  systemDescription: string;
+  agentOutputs: Record<string, string>; // agentName → full text output
+}
+
+export interface StateSnapshotEvent extends BaseEvent {
+  type: "STATE_SNAPSHOT";
+  snapshot: DesignState;
+}
+
+export interface JsonPatchOp {
+  op: "add" | "replace" | "remove";
+  path: string;
+  value?: unknown;
+}
+
+export interface StateDeltaEvent extends BaseEvent {
+  type: "STATE_DELTA";
+  delta: JsonPatchOp[];
+}
+
+export type AGUIEvent =
+  | RunStartedEvent
+  | RunFinishedEvent
+  | RunErrorEvent
+  | StepStartedEvent
+  | StepFinishedEvent
+  | TextMessageStartEvent
+  | TextMessageChunkEvent
+  | TextMessageEndEvent
+  | StateSnapshotEvent
+  | StateDeltaEvent;
