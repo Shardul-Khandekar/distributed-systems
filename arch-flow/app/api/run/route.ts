@@ -4,6 +4,7 @@ import { runArchitectAgent } from "@/lib/agents/architect";
 import type { DesignState } from "@/types/agui";
 
 // Never cache and always run on nodejs not on edge runtime
+// Every agent run must be a fresh request, a cached response would never stream
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
@@ -28,10 +29,15 @@ export async function POST(req: NextRequest) {
     // writer  → goes to the agents
     // These two are created together because the writer holds a reference to the stream's internal controller — they can't exist independently.
     const { stream, writer } = createAGUIStream();
+    // One submit button click is one run
     const runId    = newRunId();
+    // threadId identifies conversation thread since it could span multiple runs
     const threadId = newThreadId();
 
     // Fire and forget the agent, it will run independently and push events to the stream whenever it wants
+    // async launches an agent without awaiting for it
+    // It creates a pipe with the frontend and then agent independently pushes into that pipe whenever it has something
+    // The return outside fires immediately, sending stream to frontend before the agent is even done
     (async () => {
         try {
             // Tell UI run is starting
@@ -67,3 +73,13 @@ export async function POST(req: NextRequest) {
 
     return new Response(stream, { headers: SSE_HEADERS });
 }
+
+// Event Sequence
+// writer.emitRunStarted(runId, threadId); -> Opens the stream
+// writer.emitStateSnapshot(runId, initialState); -> Sends initial state to the frontend
+// const output = await runArchitectAgent -> Agent does the work
+// writer.emitStateDelta(runId, delta); -> Sends state updates to the frontend
+// writer.emitRunFinished(runId); -> Closes the stream
+
+// Main thread: Route called → extract body → launch async → return stream (millisenconds)
+// Async thread: emitRunStarted → emitStateSnapshot → run agent → emitStateDelta (multiple times) → emitRunFinished/emitRunError
