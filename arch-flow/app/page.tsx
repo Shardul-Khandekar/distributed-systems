@@ -26,6 +26,7 @@ export default function Page() {
     // POST /api/run, for each event that arrives, it updates the relevant piece of UI
     const handleRun = useCallback(async () => {
 
+        // Defesive check to check if description is empty or whitespace or if agent is already running
         if (!description.trim() || status === "running") return;
 
         // Reset everything before starting a new run
@@ -40,28 +41,35 @@ export default function Page() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ systemDescription: description }),
             });
-
+            
+            // res.body is ReadableStream not a string, json but a continuous flow of raw binary data
             const body = res.body;
             if (!body) throw new Error("No stream in response");
 
             // Set up the stream reader
             // TextDecoder converts the raw bytes into strings
+            // ReadableStream doesn't give data by default, reader.read() is used to fetch the next available chunk
             const reader  = body.getReader();
+            // Decoder convers Unit8Array [72, 101, 108, 108, 111] to "Hello"
             const decoder = new TextDecoder();
             let   buffer  = "";
 
             while (true) {
+                // reader.read() returns a promise that resolves to an object { done: boolean, value: Uint8Array }
                 const { done, value } = await reader.read();
                 if (done) break;
 
+                // Without { stream: true } the decoder would flush its internal state after each chunk, which can corrupt multi-byte characters
                 buffer += decoder.decode(value, { stream: true });
 
                 // SSE events are separated by \n\n — split on that boundary.
                 // The last element may be an incomplete event, so we keep it
                 // in the buffer and prepend it to the next read.
                 const parts = buffer.split("\n\n");
+                // For streaming the last element is always incomplete fragment, so the chunk hasn't received closing \n\n yet
                 buffer = parts.pop() ?? "";
 
+                // Sample parts -> parts  → ['data: {"type":"RUN_STARTED"}', 'data: {"type":"TEXT_MESSAGE"}']
                 for (const part of parts) {
                     const line = part.trim();
                     if (!line.startsWith("data: ")) continue;
@@ -158,6 +166,7 @@ export default function Page() {
             <p className="text-xs text-slate-400 uppercase tracking-wider mb-3">
                 System Description
             </p>
+            {/* User types a character -> onChange fires setDescription with the new value -> react re-renders the component -> value={description} now reflects the new string */}
             <textarea
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3
                         text-sm text-slate-100 resize-none focus:outline-none
@@ -167,6 +176,9 @@ export default function Page() {
                 value={description}
                 onChange={e => setDescription(e.target.value)}
             />
+            {/* The textarea is disabled if textarea is empty or only whitespace or agent is already running */}
+            {/* If status is running show Designing.. else show Design System → */}
+            {/* Short circuit rendering pattern: Show B only if A is true A && B */}
             <div className="mt-3 flex items-center gap-4">
                 <button
                 onClick={handleRun}
