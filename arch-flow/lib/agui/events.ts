@@ -3,6 +3,7 @@ import type {
   AGUIEvent,
   DesignState,
   JsonPatchOp,
+  HITLRequestedEvent,
 } from "@/types/agui";
 
 // SSE Header
@@ -84,6 +85,10 @@ export class AGUIStreamWriter {
   emitStateDelta(runId: string, delta: JsonPatchOp[]): void {
     this.emit({ type: "STATE_DELTA", runId, delta, timestamp: Date.now() });
   }
+
+  emitHITLRequested(runId: string, decision: HITLRequestedEvent["decision"]): void {
+    this.emit({ type: "HITL_REQUESTED", runId, decision, timestamp: Date.now() });
+}
 
   // Close the stream when done otherwise the browser keeps the connection open waiting for more events indefinitely.
   close(): void {
