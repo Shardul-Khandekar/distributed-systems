@@ -49,6 +49,7 @@ export async function runArchitectAgent({
   systemDescription,
   runId,
   writer,
+  waitForDecision,
 }: ArchitectAgentInput): Promise<string>{
 
     // Signal that agent has started
@@ -58,30 +59,19 @@ export async function runArchitectAgent({
     const messageId = writer.emitTextStart(runId, "ArchitectAgent");
 
     // Stream openai response
-    const stream = await client.chat.completions.create({
-    model: "gpt-4o",
-    stream: true,
-    messages: [
-      {
-        role: "system",
-        content: `
-            You are a Senior Software Architect with 15 years of experience 
-            designing large-scale distributed systems. Given a system description, produce 
-            a clear high-level architecture covering:
-            1. Core components and responsibilities
-            2. Data flow between components
-            3. Technology recommendations with brief rationale
-            4. Scalability approach
-            5. Key risks to address
+    const preHITLStream = await client.chat.completions.create({
+      model: "gpt-4o",
+      stream: true,
+      messages: [
+        { role: "system", content: pre_hitl_prompt },
+        { role: "user",   content: `Design the architecture for: ${systemDescription}` },
+      ],
+    });
 
-            Be specific and practical. Use clear sections and bullet points.`,
-      },
-      {
-        role: "user",
-        content: `Design the architecture for: ${systemDescription}`,
-      },
-    ],
-  });
+    let pre_hitl_text = ""; // Full text before the decision point
+    let buffer       = "";  // Tokens to emit yet
+    let inDecision   = false;
+    let decisionRaw  = "";  // raw json inside [DECISION]...[/DECISION]
 
   // Translate OpenAI token stream into AG-UI chunk
   let fullText = "";
