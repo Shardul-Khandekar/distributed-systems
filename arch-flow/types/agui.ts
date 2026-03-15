@@ -17,7 +17,11 @@ export type AGUIEventType =
 
     // State -> Shared memory where all agents can read and write information
     | "STATE_SNAPSHOT"
-    | "STATE_DELTA";
+    | "STATE_DELTA"
+
+    // HITL
+    | "HITL_REQUESTED"
+    | "HITL_RESOLVED";
 
 
 // Every single AG-UI event has three fields, no expections
@@ -84,9 +88,16 @@ export interface TextMessageEndEvent extends BaseEvent {
 
 // STATE SNAPSHOT -> Sent at the start of a run to initialize UIs state store, contains the entire state object. Also sent after a major reset
 export interface DesignState {
-  phase: "idle" | "designing" | "done";
+  phase: "idle" | "designing" | "awaiting_decision" | "done";
   systemDescription: string;
   agentOutputs: Record<string, string>; // agentName → full text output
+  pendingDecision: HITLRequestedEvent["decision"] | null; // current question agent is waiting for answer
+  // decisions is a log of every decision made by the agent, the architect reads this
+  decisions: Array<{
+    decisionId: string;
+    question: string;
+    chosenLabel: string;
+  }>;
 }
 
 export interface StateSnapshotEvent extends BaseEvent {
@@ -105,6 +116,30 @@ export interface StateDeltaEvent extends BaseEvent {
   delta: JsonPatchOp[];
 }
 
+// HITL Events
+// Emitted by the agent mid-stream when it hits a decision it cannot resolve
+// Frontend will receive a decision card and the stream is kept open while the agent is literally waiting for human input
+
+export interface HITLRequestedEvent extends BaseEvent {
+  type: "HITL_REQUESTED";
+  decision: {
+    id: string;
+    question: string;    // what the agent is asking
+    context: string;     // why the agent can't proceed without an answer
+    options: Array<{
+      id: string;
+      label: string;
+      description: string;
+    }>;
+  };
+}
+
+export interface HITLResolvedPayload {
+  runId: string;
+  decisionId: string;
+  chosenOptionId: string;
+}
+
 export type AGUIEvent =
   | RunStartedEvent
   | RunFinishedEvent
@@ -115,4 +150,5 @@ export type AGUIEvent =
   | TextMessageChunkEvent
   | TextMessageEndEvent
   | StateSnapshotEvent
-  | StateDeltaEvent;
+  | StateDeltaEvent
+  | HITLRequestedEvent;
