@@ -8,6 +8,9 @@ import type { DesignState } from "@/types/agui";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+// In memory store for simplicity, not shared between instances, not persistent, reset on server restart
+const decisionResolvers = new Map<string, (chosenOptionId: string) => void>();
+
 export async function POST(req: NextRequest) {
 
     // The frontend will POST { systemDescription: "..." } to this endpoint.
@@ -48,18 +51,24 @@ export async function POST(req: NextRequest) {
                 phase: "designing",
                 systemDescription,
                 agentOutputs: {},
+                pendingDecision:   null,
+                decisions:         [],
             };
             writer.emitStateSnapshot(runId, initialState);
 
-            const output = await runArchitectAgent({
+            await runArchitectAgent({
                 systemDescription,
                 runId,
                 writer,
+                waitForDecision: (decisionId: string) => {
+                return new Promise<string>((resolve) => {
+                    decisionResolvers.set(decisionId, resolve);
+                });
+                },
             });
 
             writer.emitStateDelta(runId, [
-                { op: "add",     path: "/agentOutputs/architect", value: output },
-                { op: "replace", path: "/phase",                  value: "done" },
+                { op: "replace", path: "/phase", value: "done" },
             ]);
             
             writer.emitRunFinished(runId);
