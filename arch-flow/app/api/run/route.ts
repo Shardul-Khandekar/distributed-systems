@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAGUIStream, SSE_HEADERS, newRunId, newThreadId } from "@/lib/agui/events";
 import { runArchitectAgent } from "@/lib/agents/architect";
-import type { DesignState } from "@/types/agui";
+import type { DesignState, HITLResolvedPayload } from "@/types/agui";
 
 // Never cache and always run on nodejs not on edge runtime
 // Every agent run must be a fresh request, a cached response would never stream
@@ -81,6 +81,38 @@ export async function POST(req: NextRequest) {
     })();
 
     return new Response(stream, { headers: SSE_HEADERS });
+}
+
+// PUT /api/run/resume
+export async function PUT(req: NextRequest) {
+
+    let payload: HITLResolvedPayload;
+
+    try {
+        payload = await req.json();
+        if (!payload.decisionId || !payload.chosenOptionId) throw new Error();
+    } catch {
+        return NextResponse.json(
+        { error: "Body must be { runId, decisionId, chosenOptionId }" },
+        { status: 400 }
+        );
+    }
+
+    const resolver = decisionResolvers.get(payload.decisionId);
+    if (!resolver) {
+        return NextResponse.json(
+            { error: "No pending decision found for this decisionId" },
+            { status: 404 }
+        );
+    }
+
+    // Call resolver to wake the agent up again
+    resolver(payload.chosenOptionId);
+
+    // Clean the resolver from the map since it's a one-time use
+    decisionResolvers.delete(payload.decisionId);
+
+    return NextResponse.json({ status: "ok" });
 }
 
 // Event Sequence
