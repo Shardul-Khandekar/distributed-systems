@@ -50,7 +50,7 @@ export async function runArchitectAgent({
   runId,
   writer,
   waitForDecision,
-}: ArchitectAgentInput): Promise<string>{
+}: ArchitectAgentInput): Promise<void>{
 
     // Signal that agent has started
     const stepId = writer.emitStepStarted(runId, "ArchitectAgent");
@@ -73,23 +73,115 @@ export async function runArchitectAgent({
     let inDecision   = false;
     let decisionRaw  = "";  // raw json inside [DECISION]...[/DECISION]
 
-  // Translate OpenAI token stream into AG-UI chunk
-  let fullText = "";
+    for await (const chunk of preHITLStream) {
+      
+      const delta = chunk.choices[0]?.delta?.content;
+      if (!delta) continue;
 
-  for await (const chunk of stream) {
-    const delta = chunk.choices[0]?.delta?.content;
-    // delta is undefined for first and last chunks
-    if (delta) {
-      fullText += delta;
-      writer.emitTextChunk(runId, messageId, delta);
+      buffer += delta;
+      if (!inDecision) {
+        
+        const markerStart = buffer.indexOf("[DECISION]");
+        if (markerStart !== -1) {
+          // Emit text up to the decision point
+          const safeText = buffer.slice(0, markerStart);
+          if (safeText) {
+            pre_hitl_text += safeText;
+            writer.emitTextChunk(runId, messageId, safeText);
+          }
+
+          // Switch to decision mode
+          inDecision = true;
+          buffer = buffer.slice(markerStart + "[DECISION]".length);
+        } else {
+          // The tail stays in the buffer in case the marker starts at the end of the chunk
+          const safeLength = Math.max(0, buffer.length - "[DECISION]".length);
+          if (safeLength > 0) {
+            const safeText = buffer.slice(0, safeLength);
+            pre_hitl_text += safeText;
+            writer.emitTextChunk(runId, messageId, safeText);
+            buffer = buffer.slice(safeLength);
+          }
+        }
+      } else {
+        // Inside the [DECISION] .. [/DECISION] block, accumulate until we see the closing marker
+        const markerEnd = buffer.indexOf("[/DECISION]");
+        if (markerEnd !== -1) {
+          decisionRaw = buffer.slice(0, markerEnd);
+          break;
+        }
+      }
     }
-  }
+
+    // Close pre-HITL message
+    writer.emitTextEnd(runId, messageId);
+
+    // Parse decision
+    const decisionId = uuid();
+    const parsed     = JSON.parse(decisionRaw.trim());
+    const decision   = { id: decisionId, ...parsed };
+
+    // Update shared state so that the UI shows a decision card
+      writer.emitStateDelta(runId, [
+        { op: "replace", path: "/phase",           value: "awaiting_decision" },
+        { op: "replace", path: "/pendingDecision", value: decision },
+    ]);
+
+    writer.emitHITLRequested(runId, decision);
+
+    // The stream is open with the browser connected
+    // The agent is waiting for a promise that resolves when a POST call to /api/run/resume happens
+
+    const chosenOptionId = await waitForDecision(decisionId);
+    const chosenOption = decision.options.find(
+      (o: { id: string; label: string }) => o.id === chosenOptionId
+    );
+
+    // After decision update state so that UI clears the card
+    writer.emitStateDelta(runId, [
+      { op: "replace", path: "/phase",           value: "designing" },
+      { op: "replace", path: "/pendingDecision", value: null },
+      { op: "add",     path: "/decisions/-",     value: {
+          decisionId,
+          question:    decision.question,
+          chosenLabel: chosenOption?.label ?? chosenOptionId,
+        }
+      },
+    ]);
+
+    // Continue the stream with the post-HITL prompt that includes the human's decision
+    const postMessageId = writer.emitTextStart(runId, "ArchitectAgent");
+
+    const postHITLStream = await client.chat.completions.create({
+      model: "gpt-4o",
+      stream: true,
+      messages: [
+        { role: "system", content: post_hitl_prompt },
+        {
+          role: "user",
+          content: `System: ${systemDescription}
+
+          Architecture designed so far:
+          ${pre_hitl_text}
+
+          Decision asked: "${decision.question}"
+          Human chose: "${chosenOption?.label}" — ${chosenOption?.description}
+
+          Complete the architecture from here, incorporating this choice throughout.`,
+        },
+      ],
+    });
+
+    for await (const chunk of postHITLStream) {
+      const delta = chunk.choices[0]?.delta?.content;
+      if (delta) {
+        writer.emitTextChunk(runId, postMessageId, delta);
+      }
+    }
 
     // Signal that the text message is done, UI can stop waiting for more tokens
     // TEXT_MESSAGE_END tells the UI to stop the blinking cursor.
     // STEP_FINISHED tells the UI this agent is done — mark it complete.
     writer.emitTextEnd(runId, messageId);
     writer.emitStepFinished(runId, stepId);
-
-    return fullText;
 }
