@@ -2,15 +2,16 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import type { AGUIEvent, DesignState } from "@/types/agui";
+import type { AGUIEvent, DesignState, HITLResolvedPayload } from "@/types/agui";
 
 interface AgentMessage {
   agentName: string;
   text: string;       // built up chunk by chunk as TEXT_MESSAGE_CHUNKs arrive
   done: boolean;      // flips to true on TEXT_MESSAGE_END
+  messageId: string;
 }
 
-type RunStatus = "idle" | "running" | "done" | "error";
+type RunStatus = "idle" | "running" | "awaiting_decision" | "done" | "error";
 
 
 export default function Page() {
@@ -18,7 +19,7 @@ export default function Page() {
     const [description, setDescription]     = useState("");
     const [status, setStatus]               = useState<RunStatus>("idle");
     const [state, setState]                 = useState<DesignState | null>(null);
-    const [messages, setMessages]           = useState<Record<string, AgentMessage>>({});
+    const [messages, setMessages]           = useState<AgentMessage[]>([]);
     const [eventLog, setEventLog]           = useState<AGUIEvent[]>([]);
     const [activeTab, setActiveTab]         = useState<"output" | "events">("output");
 
@@ -31,7 +32,7 @@ export default function Page() {
 
         // Reset everything before starting a new run
         setStatus("running");
-        setMessages({});
+        setMessages([]);
         setEventLog([]);
         setState(null);
 
@@ -96,38 +97,45 @@ export default function Page() {
                                         const key = op.path.split("/").pop()!;
                                         next.agentOutputs = { ...next.agentOutputs, [key]: op.value as string };
                                     }
+                                    // Phase 2: agent writes the pending decision into state before emitting HITL_REQUESTED
+                                    // The UI reads pendingDecision from state to render the decision card
+                                    if (op.path === "/pendingDecision") {
+                                        next.pendingDecision = op.value as DesignState["pendingDecision"];
+                                    }
+                                    // Phase 2: each resolved decision gets appended to the decisions log
+                                    // op: "add", path: "/decisions/-" is JSON Patch syntax for append-to-array
+                                    if (op.op === "add" && op.path === "/decisions/-") {
+                                        next.decisions = [...next.decisions, op.value as DesignState["decisions"][0]];
+                                    }
                                 }
                                 return next;
                             });
                             break;
                         case "TEXT_MESSAGE_START":
-                            // New agent message beginning — create an empty container for it
-                            setMessages(prev => ({
-                                ...prev,
-                                [event.messageId]: {
+                            // New agent message — add an empty entry to the messages array
+                            setMessages(prev => [...prev, {
+                                messageId: event.messageId,
                                 agentName: event.agentName,
-                                text: "",
-                                done: false,
-                                },
-                            }));
+                                text:      "",
+                                done:      false,
+                            }]);
                             break;
                         case "TEXT_MESSAGE_CHUNK":
                             // Token arrived — append it to the right message container
                             // This is what makes text appear word by word in the UI
-                            setMessages(prev => ({
-                                ...prev,
-                                [event.messageId]: {
-                                ...prev[event.messageId],
-                                text: prev[event.messageId].text + event.delta,
-                                },
-                            }));
+                            setMessages(prev => prev.map(m =>
+                                m.messageId === event.messageId
+                                ? { ...m, text: m.text + event.delta }
+                                : m
+                            ));
                             break;
                          case "TEXT_MESSAGE_END":
                             // Message complete — flip done flag, cursor animation stops
-                            setMessages(prev => ({
-                                ...prev,
-                                [event.messageId]: { ...prev[event.messageId], done: true },
-                            }));
+                            setMessages(prev => prev.map(m =>
+                                m.messageId === event.messageId
+                                ? { ...m, done: true }
+                                : m
+                            ));
                             break;
 
                         case "RUN_FINISHED":
@@ -137,6 +145,14 @@ export default function Page() {
                         case "RUN_ERROR":
                             setStatus("error");
                             break;
+
+                        // Phase 2: agent emits this mid-stream when it hits a genuine fork
+                        // STATE_DELTA already wrote pendingDecision into state just before this
+                        // This event is the explicit signal to flip the UI into decision mode —
+                        // the output stops, the decision card appears
+                        case "HITL_REQUESTED":
+                            setStatus("awaiting_decision");
+                            break;
                     }
                 }
             }
@@ -145,6 +161,31 @@ export default function Page() {
             setStatus("error");
         }
     }, [description, status]);
+
+    // Phase 2: called when the user clicks an option on the decision card
+    // Sends a PUT to /api/run with the chosen option — this resolves the
+    // Promise the agent is waiting on, waking it back up server-side.
+    // The original stream reader in handleRun is still running and will
+    // automatically pick up the new events the agent emits after resuming.
+    // No new stream, no new fetch — same connection, same reader, continues.
+    const handleDecision = useCallback(async (chosenOptionId: string) => {
+        if (!state?.pendingDecision) return;
+
+        const payload: HITLResolvedPayload = {
+            runId:          "",
+            decisionId:     state.pendingDecision.id,
+            chosenOptionId,
+        };
+
+        // Flip back to running immediately so the UI shows streaming resumed
+        setStatus("running");
+
+        await fetch("/api/run", {
+            method:  "PUT",
+            headers: { "Content-Type": "application/json" },
+            body:    JSON.stringify(payload),
+        });
+    }, [state]);
 
      return (
 
@@ -175,6 +216,7 @@ export default function Page() {
                 placeholder="e.g. A URL shortener handling 100M requests per day…"
                 value={description}
                 onChange={e => setDescription(e.target.value)}
+                disabled={status === "running" || status === "awaiting_decision"}
             />
             {/* The textarea is disabled if textarea is empty or only whitespace or agent is already running */}
             {/* If status is running show Designing.. else show Design System → */}
@@ -182,7 +224,7 @@ export default function Page() {
             <div className="mt-3 flex items-center gap-4">
                 <button
                 onClick={handleRun}
-                disabled={!description.trim() || status === "running"}
+                disabled={!description.trim() || status === "running" || status === "awaiting_decision"}
                 className="px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-40
                             disabled:cursor-not-allowed text-sm rounded-lg transition-colors"
                 >
@@ -192,6 +234,66 @@ export default function Page() {
                 {status === "error" && <span className="text-xs text-red-400">✗ Error</span>}
             </div>
             </div>
+
+            {/* Output area — only shown once a run starts */}
+            {/* Phase 2: decision card — renders when HITL_REQUESTED arrives mid-stream */}
+            {/* Two conditions must both be true: status flipped by HITL_REQUESTED event, */}
+            {/* pendingDecision populated by STATE_DELTA just before it */}
+            {status === "awaiting_decision" && state?.pendingDecision && (
+            <div className="bg-slate-900 border-2 border-amber-500 rounded-xl p-5">
+                {/* Pulsing dot signals the agent is alive but waiting — not crashed */}
+                <div className="flex items-center gap-2 mb-1">
+                <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                <span className="text-xs text-amber-400 uppercase tracking-wider font-medium">
+                    Agent needs your input
+                </span>
+                </div>
+                <p className="text-sm text-slate-100 font-sans mt-3 mb-1 font-medium">
+                {state.pendingDecision.question}
+                </p>
+                {/* Context tells the user WHY this decision matters for the design */}
+                <p className="text-xs text-slate-400 font-sans mb-4">
+                {state.pendingDecision.context}
+                </p>
+                <div className="space-y-2">
+                {state.pendingDecision.options.map(option => (
+                    <button
+                    key={option.id}
+                    onClick={() => handleDecision(option.id)}
+                    className="w-full text-left bg-slate-950 hover:bg-slate-800
+                                border border-slate-700 hover:border-amber-500
+                                rounded-lg p-3 transition-colors group"
+                    >
+                    <p className="text-sm text-slate-100 font-medium group-hover:text-amber-400
+                                    transition-colors font-sans">
+                        {option.label}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5 font-sans">
+                        {option.description}
+                    </p>
+                    </button>
+                ))}
+                </div>
+            </div>
+            )}
+
+            {/* Phase 2: decisions log — each resolved HITL decision appears here */}
+            {/* Gives the user a visible record of the choices that shaped the design */}
+            {state && state.decisions.length > 0 && (
+            <div className="space-y-1">
+                {state.decisions.map(d => (
+                <div
+                    key={d.decisionId}
+                    className="flex items-center gap-3 text-xs text-slate-500
+                            border border-slate-800 rounded-lg px-3 py-2"
+                >
+                    <span className="text-emerald-400">✓</span>
+                    <span className="font-sans">{d.question}</span>
+                    <span className="ml-auto text-slate-300 font-sans">{d.chosenLabel}</span>
+                </div>
+                ))}
+            </div>
+            )}
 
             {/* Output area — only shown once a run starts */}
             {eventLog.length > 0 && (
@@ -217,16 +319,21 @@ export default function Page() {
                 {/* Output Tab — renders each agent's streaming message */}
                 {activeTab === "output" && (
                 <div className="p-5 space-y-4">
-                    {Object.entries(messages).map(([id, msg]) => (
-                    <div key={id}>
+                    {messages.map(msg => (
+                    <div key={msg.messageId}>
                         <div className="flex items-center gap-2 mb-2">
                         <div className="w-2 h-2 rounded-full bg-violet-500" />
                         <span className="text-xs text-violet-400 uppercase tracking-wider">
                             {msg.agentName}
                         </span>
-                        {!msg.done && (
+                        {!msg.done && status === "running" && (
                             <span className="text-xs text-slate-500 animate-pulse">
                             streaming…
+                            </span>
+                        )}
+                        {!msg.done && status === "awaiting_decision" && (
+                            <span className="text-xs text-amber-500">
+                            paused — waiting for your decision
                             </span>
                         )}
                         </div>
