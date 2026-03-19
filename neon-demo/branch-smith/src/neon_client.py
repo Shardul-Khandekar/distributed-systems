@@ -62,3 +62,44 @@ def get_branch_by_name(name):
             return branch
     
     return None
+
+def create_branch(name, parent_branch_name="production"):
+    """
+        Creates a new branch off the specified parent and returns branch metadata dict
+    """
+    parent = get_branch_by_name(parent_branch_name)
+
+    if not parent:
+        raise ValueError(f"Parent branch '{parent_branch_name}' not found")
+    
+    body = {
+        "branch": {
+            "name": name,
+            "parent_id": parent["id"],
+        },
+        "endpoints": [
+            {"type": "read_write"}  # attach a compute endpoint
+        ],
+    }
+
+    data = _request("POST", f"/projects/{PROJECT_ID}/branches", json_body=body)
+
+    print(f"Created branch '{name}' (id: {data['branch']['id']})")
+    return data
+
+def delete_branch(name):
+    """
+        Delete a branch by name. Refuses to delete 'main' as a safety check
+    """
+
+    if name == "main":
+        raise ValueError("Cannot delete 'main' branch")
+    
+    branch = get_branch_by_name(name)
+    if not branch:
+        print(f"Branch '{name}' not found, nothing to delete.")
+        return
+    
+    _request("DELETE", f"/projects/{PROJECT_ID}/branches/{branch['id']}")
+    print(f"Deleted branch '{name}' (id: {branch['id']})")
+
