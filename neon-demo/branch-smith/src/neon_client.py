@@ -84,15 +84,18 @@ def create_branch(name, parent_branch_name="production"):
 
     data = _request("POST", f"/projects/{PROJECT_ID}/branches", json_body=body)
 
-    return data
+    branch_id = data["branch"]["id"]
+    connection_uris = data.get("connection_uris", {})
 
-    # branch_id = data["branch"]["id"]
-    # endpoints = data.get("endpoints", [])
-
-    # if not endpoints:
-    #     raise RuntimeError(f"Branch '{name}' created but no endpoint was attached.")
+    if not connection_uris:
+        raise RuntimeError(
+            f"Branch '{name}' created but no connection_uris returned."
+        )
     
-    # host = endpoints[0]["host"]
+    connection_url = connection_uris[0]["connection_uri"]
+
+    print(f"Created branch '{name}' (id: {branch_id})")
+    return {"id": branch_id, "name": name, "connection_url": connection_url}
 
 def delete_branch(name):
     """
