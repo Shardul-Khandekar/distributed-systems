@@ -97,3 +97,20 @@ def generate_sql_node(state: AgentState) -> dict:
         "sql_explanation": parsed["explanation"],
     }
 
+# Execution node
+def execute_node(state: AgentState) -> dict:
+    """
+        Run the migration SQL against the branch.
+    """
+    print("\n[execute] Running migration SQL on branch")
+    try:
+        with psycopg2.connect(state["connection_url"]) as conn:
+            with conn.cursor() as cur:
+                cur.execute(state["migration_sql"])
+                conn.commit()
+        print("[execute] Migration applied successfully.")
+        return {"execution_success": True, "execution_error": None}
+    except Exception as e:
+        print(f"[execute] Migration FAILED: {e}")
+        return {"execution_success": False, "execution_error": str(e)}
+    
