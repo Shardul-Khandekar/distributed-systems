@@ -16,9 +16,10 @@ llm = ChatOpenAI(
     api_key=os.getenv("OPENAI_API_KEY"),
 )
 
+# Create branch node
 def create_branch_node(state: AgentState) -> dict:
     """
-        Spin up a fresh Neon branch for the migration attempt
+        Spin up a fresh Neon branch for the migration attempt.
     """
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     branch_name = f"agent-migration-{timestamp}"
@@ -32,3 +33,13 @@ def create_branch_node(state: AgentState) -> dict:
         "branch_name": branch["name"],
         "connection_url": branch["connection_url"],
     }
+
+# Inspect schema node
+def introspect_node(state: AgentState) -> dict:
+    """
+        Read the current schema on the branch before any changes.
+    """
+    print("\n[introspect] Reading current schema")
+    schema = schema_inspector.get_schema(state["connection_url"])
+    print(f"[introspect] Found {len(schema['tables'])} table(s).")
+    return {"schema_before": schema}
