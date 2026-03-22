@@ -144,3 +144,47 @@ def validate_node(state: AgentState) -> dict:
         "validation_notes": notes,
     }
 
+# Present difference node
+def present_node(state: AgentState) -> dict:
+    """
+        Build a human-readable summary of what changed.
+    """
+    before = state["schema_before"]
+    after = state["schema_after"]
+
+    before_tables = {t["name"]: t for t in before["tables"]}
+    after_tables = {t["name"]: t for t in after["tables"]}
+
+    lines = []
+
+    # Tables added or removed
+    added = set(after_tables) - set(before_tables)
+    removed = set(before_tables) - set(after_tables)
+
+    for t in added:
+        lines.append(f"  + Table added: {t}")
+    for t in removed:
+        lines.append(f"  - Table removed: {t}")
+
+    # Columns added or removed
+    for t in set(before_tables) & set(after_tables):
+        before_cols = {c["name"]: c for c in before_tables[t]["columns"]}
+        after_cols = {c["name"]: c for c in after_tables[t]["columns"]}
+        for c in set(after_cols) - set(before_cols):
+            lines.append(f"  + Column added: {t}.{c} ({after_cols[c]['type']})")
+        for c in set(before_cols) - set(after_cols):
+            lines.append(f"  - Column removed: {t}.{c}")
+
+        diff_summary = "\n".join(lines) if lines else "  (no structural changes detected)"
+
+    print("\n" + "=" * 60)
+    print("MIGRATION PROPOSAL")
+    print("=" * 60)
+    print(f"\nRequest: {state['user_request']}")
+    print(f"\nSQL to be applied:\n{state['migration_sql']}")
+    print(f"\nExplanation: {state['sql_explanation']}")
+    print(f"\nSchema changes detected:\n{diff_summary}")
+    print(f"\nValidation: {state['validation_notes']}")
+    print("=" * 60)
+
+    return {"diff_summary": diff_summary}
