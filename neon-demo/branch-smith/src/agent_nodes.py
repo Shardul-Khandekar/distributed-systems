@@ -114,3 +114,33 @@ def execute_node(state: AgentState) -> dict:
         print(f"[execute] Migration FAILED: {e}")
         return {"execution_success": False, "execution_error": str(e)}
     
+def validate_node(state: AgentState) -> dict:
+    """
+        Re-read the schema and check that something actually changed.
+    """
+    print("\n[validate] Re-reading schema after migration.")
+
+    if not state.get("execution_success"):
+        return {
+            "schema_after": state["schema_before"],
+            "validation_passed": False,
+            "validation_notes": f"Skipped: execution failed with {state.get('execution_error')}",
+        }
+    
+    schema_after = schema_inspector.get_schema(state["connection_url"])
+
+    changed = json.dumps(schema_after, sort_keys=True, default=str) != json.dumps(
+        state["schema_before"], sort_keys=True, default=str
+    )
+
+    notes = "Schema changed as expected." if changed else (
+        "Warning: schema appears unchanged. The SQL may have been a no-op."
+    )
+    print(f"[validate] {notes}")
+
+    return {
+        "schema_after": schema_after,
+        "validation_passed": changed,
+        "validation_notes": notes,
+    }
+
