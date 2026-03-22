@@ -43,3 +43,57 @@ def introspect_node(state: AgentState) -> dict:
     schema = schema_inspector.get_schema(state["connection_url"])
     print(f"[introspect] Found {len(schema['tables'])} table(s).")
     return {"schema_before": schema}
+
+# Generate SQL node
+GENERATE_SQL_SYSTEM_PROMPT = """
+    You are a careful PostgreSQL migration assistant.
+
+    You will be given:
+    1. The current schema of a database (as JSON)
+    2. A natural-language description of a desired migration
+
+    Your job is to produce ONLY the SQL needed to perform the migration, plus a one-paragraph explanation.
+
+    Rules:
+    - Output valid PostgreSQL SQL only.
+    - Use IF NOT EXISTS / IF EXISTS where appropriate to make the migration idempotent.
+    - Do not drop tables or columns unless the request explicitly asks for it.
+    - If the request is ambiguous, make the safest reasonable interpretation and note your assumption in the explanation.
+    - Never include DELETE without a WHERE clause.
+
+    Respond in this exact JSON format:
+    {
+        "sql": "<the migration SQL, possibly multiple statements separated by semicolons>",
+        "explanation": "<one paragraph explaining what the SQL does and why>"
+    }
+
+    Do not wrap your response in markdown code fences. Return raw JSON only.
+"""
+
+def generate_sql_node(state: AgentState) -> dict:
+    """
+        Use the LLM to generate migration SQL based on the request and current schema.
+    """
+    print("\n[generate_sql] Asking LLM to generate migration SQL")
+
+    user_message = f"""Current schema:
+        {json.dumps(state['schema_before'], indent=2, default=str)}
+
+        Migration request:
+        {state['user_request']}
+    """
+
+    response = llm.invoke([
+        SystemMessage(content=GENERATE_SQL_SYSTEM_PROMPT),
+        HumanMessage(content=user_message),
+    ])
+
+    parsed = json.loads(response.content)
+
+    print(f"[generate_sql] SQL generated:\n{parsed['sql']}")
+
+    return {
+        "migration_sql": parsed["sql"],
+        "sql_explanation": parsed["explanation"],
+    }
+
