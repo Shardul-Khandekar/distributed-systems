@@ -115,3 +115,30 @@ def get_concept_graph() -> str:
             linked = [notes[l]["title"] for l in note["links"] if l in notes]
             graph.append(f"{note['title']} → {', '.join(linked)}")
     return "\n".join(graph) if graph else "No links created yet."
+
+
+# Prompts
+# Prompts are reusable LLM instructions that can be called from tools or resources to maintain consistency
+@mcp.prompt()
+def summarize(topic: str) -> str:
+    """Summarize all notes related to a topic."""
+    return f"""Read the resource at notes://all and summarize everything related to '{topic}'.
+        Structure your response as:
+        - Key concepts
+        - Connections between ideas
+        - Gaps in my knowledge
+        - What to learn next
+    """
+
+@mcp.prompt()
+def daily_review() -> str:
+    """Run a daily knowledge review across all notes."""
+    return """Read notes://all and give me a daily knowledge review:
+        1. My top 3 most developed topics
+        2. Notes that are isolated (no links) — I should connect these
+        3. Two connections I haven't made yet but should
+        4. What to study today based on my gaps
+    """
+
+if __name__ == "__main__":
+    mcp.run()
