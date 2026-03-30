@@ -69,3 +69,49 @@ def delete_note(note_id: str) -> str:
     del notes[note_id]
     save_notes(notes)
     return f"Deleted: {title}"
+
+# Resources
+# THe difference between tools and resources is that resources are just readable context and no action
+
+@mcp.resource("notes://all")
+def get_all_notes() -> str:
+    """All notes in the knowledge base."""
+    notes = load_notes()
+    if not notes:
+        return "No notes saved yet."
+    result = []
+    for note in notes.values():
+        result.append(
+            f"ID: {note['id']}\n"
+            f"Title: {note['title']}\n"
+            f"Tags: {', '.join(note['tags'])}\n"
+            f"Content: {note['content']}\n"
+            f"Links: {', '.join(note['links']) or 'none'}\n---"
+        )
+    return "\n".join(result)
+
+@mcp.resource("notes://{note_id}")
+def get_note_by_id(note_id: str) -> str:
+    """A single note by ID — dynamic resource URI."""
+    notes = load_notes()
+    if note_id not in notes:
+        return "Note not found."
+    n = notes[note_id]
+    return (
+        f"Title: {n['title']}\n"
+        f"Content: {n['content']}\n"
+        f"Tags: {', '.join(n['tags'])}\n"
+        f"Links: {', '.join(n['links']) or 'none'}\n"
+        f"Created: {n['created_at']}"
+    )
+
+@mcp.resource("concepts://graph")
+def get_concept_graph() -> str:
+    """The full concept link graph — which notes connect to which."""
+    notes = load_notes()
+    graph = []
+    for note in notes.values():
+        if note["links"]:
+            linked = [notes[l]["title"] for l in note["links"] if l in notes]
+            graph.append(f"{note['title']} → {', '.join(linked)}")
+    return "\n".join(graph) if graph else "No links created yet."
