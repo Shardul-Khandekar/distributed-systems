@@ -8,3 +8,10 @@ model_list:
     litellm_params:
       model: "gpt-4o"
       api_key: "os.environ/OPENAI_API_KEY"
+
+general_settings:
+  master_key: "ba357135-ac3d-462c-a4b5-138ac38959ff"
+
+litellm_settings:
+  max_budget: 0.50
+  budget_duration: "1d"
