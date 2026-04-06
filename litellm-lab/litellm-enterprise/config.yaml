@@ -3,13 +3,29 @@ model_list:
     litellm_params:
       model: "gpt-4o-mini"
       api_key: "os.environ/OPENAI_API_KEY"
+      max_tokens: 256
+      temperature: 0.0
   - model_name: "fast-model"
     litellm_params:
       model: "gemini/gemini-2.0-flash"
       api_key: "os.environ/GEMINI_API_KEY"
+      max_tokens: 256
+      temperature: 0.0
   - model_name: "reasoning-model"
     litellm_params:
       model: "gpt-4o"
+      api_key: "os.environ/OPENAI_API_KEY"
+      max_tokens: 2048
+      temperature: 0.2
+  - model_name: "creative-model"
+    litellm_params:
+      model: "gpt-4o"
+      api_key: "os.environ/OPENAI_API_KEY"
+      max_tokens: 4096
+      temperature: 0.9
+  - model_name: "embedding-model"
+    litellm_params:
+      model: "text-embedding-3-small"
       api_key: "os.environ/OPENAI_API_KEY"
 
 general_settings:
