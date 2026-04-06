@@ -1,0 +1,21 @@
+model_list:
+  - model_name: "fast-model"
+    litellm_params:
+      model: "gpt-4o-mini"
+      api_key: "os.environ/OPENAI_API_KEY"
+  - model_name: "fast-model"
+    litellm_params:
+      model: "gemini/gemini-2.0-flash"
+      api_key: "os.environ/GEMINI_API_KEY"
+  - model_name: "reasoning-model"
+    litellm_params:
+      model: "gpt-4o"
+      api_key: "os.environ/OPENAI_API_KEY"
+
+general_settings:
+  master_key: "ba357135-ac3d-462c-a4b5-138ac38959ff"
+
+router_settings:
+  num_retries: 2
+  timeout: 30                             # Any request taking longer than 30 seconds will be considered a failure and triggers fallback
+  routing_strategy: "simple-shuffle"
